@@ -1,0 +1,63 @@
+stages:
+  - build
+  - test
+  - docker
+  - deploy_staging
+  - deploy_prod
+
+variables:
+  IMAGE_NAME: $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+
+cache:
+  paths:
+    - .m2/repository
+
+build:
+  stage: build
+  image: maven:3.9.9-eclipse-temurin-21
+  script:
+    - mvn -B -ntp clean package -DskipTests
+  artifacts:
+    paths:
+      - target/*.jar
+
+test:
+  stage: test
+  image: maven:3.9.9-eclipse-temurin-21
+  script:
+    - mvn test
+
+docker_build:
+  stage: docker
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - docker login -u $CI_REGESTRY_USER -p $CI_REGESTRY_PASSWORD $CI_REGESTRY
+    - docker build -t $IMAGE_TAG .
+    - docker push $IMAGE_TAG
+
+deploy_staging:
+  stage: deploy_staging
+  only:
+    - develop
+  script:
+    - ssh $SSH_USER@$SSH_HOST "
+        docker pull $IMAGE_TAG &&
+        docker stop spring-app || true &&
+        docker rm spring-app || true &&
+        docker run -d -p 8080:8080 --name spring-app $IMAGE_TAG
+      "
+
+deploy_prod:
+  stage: deploy_prod
+  only: 
+    - main
+  when: manual
+  script:
+    - ssh $SSH_USER@$SSH_HOST "
+        docker pull $IMAGE_TAG &&
+        docker stop spring-app || true &&
+        docker rm spring-app || true &&
+        docker run -d -p 8080:8080 --name spring-app $IMAGE_TAG
+      "
